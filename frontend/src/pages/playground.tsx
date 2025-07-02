@@ -11,6 +11,8 @@ export default function Playground() {
     isDebating,
     messages,
     result,
+    rounds,
+    currentRound,
     startDebate,
     error
   } = useDebate()
@@ -84,7 +86,11 @@ export default function Playground() {
             {result && (
               <DecisionCard result={result} />
             )}
-            <ChatFeed messages={messages} />
+            <ChatFeed 
+              messages={messages} 
+              rounds={rounds}
+              currentRound={currentRound}
+            />
           </div>
         </div>
       </main>

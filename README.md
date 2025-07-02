@@ -1,16 +1,17 @@
 # 🐱 NekoMimi Council
 
-AI-powered debate system where multiple AI personas discuss topics and reach decisions through collaborative reasoning.
+AI-powered multi-round debate system where multiple AI personas engage in interactive discussions and reach decisions through collaborative reasoning.
 
 ## 📋 Overview
 
-NekoMimi Council is a real-time debate system that features:
+NekoMimi Council is a real-time multi-round debate system that features:
 
+- **Interactive Multi-Round Discussions**: 6-stage debate process with questions, responses, and moderation
 - **Multiple AI Personas**: 10 unique AI characters with distinct personalities and decision-making preferences
 - **Dual AI Provider Support**: Compatible with both OpenAI and Anthropic APIs
 - **Real-time Debate Visualization**: Watch AI personas debate in real-time through a web interface
-- **Intelligent Decision Making**: An AI Officer synthesizes all arguments to reach final conclusions
-- **WebSocket Communication**: Live updates as debates unfold
+- **Intelligent Decision Making**: An AI Officer moderates discussions and synthesizes all arguments
+- **WebSocket Communication**: Live updates as debates unfold with round-by-round progress
 
 ## 🏗️ Architecture
 
@@ -20,8 +21,30 @@ Browser (Next.js) ↔ FastAPI + Socket.IO ↔ AI Agents ↔ OpenAI/Anthropic API
 
 - **Backend**: FastAPI with Socket.IO for real-time communication
 - **Frontend**: Next.js 14 with TypeScript
-- **AI Agents**: 3 DebateAgents + 1 OfficerAgent powered by LLM APIs
+- **AI Agents**: 3 DebateAgents + 1 OfficerAgent with interactive questioning capabilities
 - **Storage**: In-memory (MVP) - results persist until server restart
+
+## 🎭 Multi-Round Debate Process
+
+The system conducts debates through 6 interactive rounds:
+
+### Round 1: Initial Opinions (初期意見表明)
+Each AI persona presents their initial stance on the topic based on their character traits and priorities.
+
+### Round 2: Peer Questions (参加者同士の質疑応答) 
+AI personas ask each other clarifying questions about their positions, diving deeper into specific aspects.
+
+### Round 3: Question Responses (質問への回答)
+Personas provide detailed answers to questions, potentially revealing new information or perspectives.
+
+### Round 4: Officer Moderation (議長からの質問)
+The AI Officer asks targeted questions to gather additional details needed for the final decision.
+
+### Round 5: Final Opinions (最終意見表明)
+After hearing all discussions, each persona presents their final stance, which may have evolved from their initial position.
+
+### Round 6: Final Decision (議長による最終決定)
+The AI Officer synthesizes all arguments and renders the final decision with reasoning and confidence level.
 
 ## 🚀 Quick Start
 
@@ -76,11 +99,16 @@ docker compose up --build
 ### Web Interface
 
 1. Navigate to http://localhost:3000/playground
-2. Enter a debate topic (e.g., "今日のランチはどこにする？")
-3. Add options separated by commas (e.g., "寿司屋A, ラーメン店B, カフェC")
-4. Click "議論開始" to start the debate
-5. Watch AI personas discuss in real-time
-6. See the final decision with reasoning and confidence score
+2. Enter a debate topic (e.g., "次の休暇の旅行先を決めよう")
+3. Add options separated by commas (e.g., "温泉旅館, 海外リゾート, 都市観光")
+4. Click "議論開始" to start the multi-round debate
+5. Watch the 6-round interactive discussion unfold:
+   - **Round 1**: Initial opinions from each persona
+   - **Round 2-3**: Personas ask questions and provide answers
+   - **Round 4**: Officer asks clarifying questions
+   - **Round 5**: Final opinions after discussion
+   - **Round 6**: Officer's final decision
+6. See the comprehensive decision with reasoning and confidence score
 
 ### CLI Testing
 
@@ -88,8 +116,8 @@ Test the system directly via command line:
 
 ```bash
 python scripts/run_cli_poc.py \
-  --topic "今日のランチはどこにする？" \
-  --options "寿司屋A,ラーメン店B,カフェC"
+  --topic "次の休暇の旅行先を決めよう" \
+  --options "温泉旅館,海外リゾート,都市観光"
 ```
 
 ### API Usage
@@ -99,7 +127,7 @@ Start a debate via REST API:
 ```bash
 curl -X POST http://localhost:8001/api/debate \
   -H "Content-Type: application/json" \
-  -d '{"topic": "今日のランチはどこにする？", "options": ["寿司屋A", "ラーメン店B", "カフェC"]}'
+  -d '{"topic": "次の休暇の旅行先を決めよう", "options": ["温泉旅館", "海外リゾート", "都市観光"]}'
 ```
 
 ## 🎭 AI Personas
@@ -130,6 +158,34 @@ The system includes 10 diverse personas:
 ### Fallback Support
 
 The system automatically falls back between providers if one becomes unavailable.
+
+## 💬 Example Multi-Round Discussion
+
+Here's what a typical debate looks like:
+
+**Topic**: "次の休暇の旅行先を決めよう"  
+**Options**: 温泉旅館, 海外リゾート, 都市観光
+
+**Round 1** - Initial Opinions:
+- 👩‍👧‍👦 ハナコ: "家族みんなで温泉旅館がいいなぁ！"
+- 💰 タケシ: "コスパ重視やな！温泉旅館が一番えええと思うで！" 
+- 🏠 ジロウ: "やっぱり地元の温泉でゆっくりしたいわけよ。"
+
+**Round 2** - Questions:
+- ハナコ→タケシ: "温泉旅館の食事って具体的にどんなメニューがあるん？"
+- タケシ→ハナコ: "コスパ的に見てどうなん？"
+
+**Round 3** - Responses:
+- タケシ: "鮮魚の刺身や焼き魚、天ぷら、そしてお味噌汁が多いで。子供には..."
+
+**Round 4** - Officer Questions:
+- 👑 議長: "ハナコさん、お子様の年齢に応じた遊び場の詳細を教えていただけますか？"
+
+**Round 5** - Final Opinions:
+- ハナコ: "やっぱり温泉旅館、家族みんなでゆっくりできるし..."
+
+**Round 6** - Decision:
+- 👑 議長: "全員の意見を総合し、温泉旅館を選択します。（信頼度：85%）"
 
 ## 📁 Project Structure
 
@@ -167,10 +223,18 @@ The system automatically falls back between providers if one becomes unavailable
 
 ### WebSocket Events
 
-- `agent_message` - Real-time agent contributions
+- `agent_message` - Real-time agent contributions with message type and round information
+- `round_start` - New debate round beginning notification
 - `decision` - Final decision from OfficerAgent
 - `status_update` - Debate status changes
 - `error` - Error notifications
+
+#### Enhanced Message Structure
+
+Each `agent_message` now includes:
+- `message_type`: initial_opinion, question, response, final_opinion, officer_question, decision
+- `target_agent`: For questions/responses, indicates the target participant
+- `round_number`: Current debate round (1-6)
 
 ## 🧪 Development
 
@@ -205,8 +269,9 @@ Edit `data/personas/personas.json` to add new AI personas:
 
 ## 📊 Performance Targets
 
-- **Response Time**: <10 seconds per debate
-- **Cost**: <$0.05 per debate session  
+- **Response Time**: <60 seconds per complete 6-round debate
+- **Round Duration**: ~8-12 seconds per round
+- **Cost**: <$0.15 per complete debate session (due to increased interaction complexity)
 - **Reliability**: 99% uptime during operation
 - **Concurrency**: Up to 5 simultaneous debates
 

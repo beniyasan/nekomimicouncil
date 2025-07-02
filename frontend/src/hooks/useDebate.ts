@@ -7,6 +7,14 @@ interface AgentMessage {
   message: string
   timestamp: string
   choice?: string
+  message_type: string
+  target_agent?: string
+  round_number: number
+}
+
+interface RoundStart {
+  round_number: number
+  description: string
 }
 
 interface DebateResult {
@@ -22,6 +30,8 @@ export function useDebate() {
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [result, setResult] = useState<DebateResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [rounds, setRounds] = useState<RoundStart[]>([])
+  const [currentRound, setCurrentRound] = useState<number>(0)
 
   useEffect(() => {
     const newSocket = io(process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8000', {
@@ -50,10 +60,27 @@ export function useDebate() {
       setMessages(prev => [...prev, message])
     })
 
+    newSocket.on('round_start', (roundInfo: RoundStart) => {
+      console.log('Round started:', roundInfo)
+      setCurrentRound(roundInfo.round_number)
+      
+      // Add round separator message
+      const roundMessage: AgentMessage = {
+        agent_id: 'system',
+        agent_name: '📢 システム',
+        message: `${roundInfo.description}を開始します`,
+        timestamp: new Date().toISOString(),
+        message_type: 'round_start',
+        round_number: roundInfo.round_number
+      }
+      setMessages(prev => [...prev, roundMessage])
+    })
+
     newSocket.on('decision', (decision: DebateResult) => {
       console.log('Received decision:', decision)
       setResult(decision)
       setIsDebating(false)
+      setCurrentRound(6)
     })
 
     newSocket.on('error', (errorMessage: string) => {
@@ -80,6 +107,8 @@ export function useDebate() {
       setMessages([])
       setResult(null)
       setError(null)
+      setCurrentRound(0)
+      setRounds([])
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/debate`, {
         method: 'POST',
@@ -112,6 +141,8 @@ export function useDebate() {
     messages,
     result,
     error,
+    rounds,
+    currentRound,
     startDebate
   }
 }

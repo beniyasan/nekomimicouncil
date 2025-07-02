@@ -6,13 +6,23 @@ interface AgentMessage {
   message: string
   timestamp: string
   choice?: string
+  message_type: string
+  target_agent?: string
+  round_number: number
+}
+
+interface RoundStart {
+  round_number: number
+  description: string
 }
 
 interface ChatFeedProps {
   messages: AgentMessage[]
+  rounds?: RoundStart[]
+  currentRound?: number
 }
 
-export function ChatFeed({ messages }: ChatFeedProps) {
+export function ChatFeed({ messages, rounds, currentRound }: ChatFeedProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -22,6 +32,30 @@ export function ChatFeed({ messages }: ChatFeedProps) {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  const getMessageTypeLabel = (messageType: string) => {
+    switch (messageType) {
+      case 'initial_opinion': return '💭 初期意見'
+      case 'question': return '❓ 質問'
+      case 'response': return '💬 回答'
+      case 'final_opinion': return '🎯 最終意見'
+      case 'officer_question': return '👑 議長質問'
+      case 'decision': return '⚖️ 決定'
+      default: return ''
+    }
+  }
+
+  const getMessageColor = (messageType: string) => {
+    switch (messageType) {
+      case 'initial_opinion': return '#007bff'
+      case 'question': return '#fd7e14'
+      case 'response': return '#28a745'
+      case 'final_opinion': return '#6f42c1'
+      case 'officer_question': return '#dc3545'
+      case 'decision': return '#20c997'
+      default: return '#007bff'
+    }
+  }
 
   if (messages.length === 0) {
     return (
@@ -33,7 +67,18 @@ export function ChatFeed({ messages }: ChatFeedProps) {
         textAlign: 'center',
         color: '#666'
       }}>
-        議論を開始すると、ここにAIキャラクターたちの会話が表示されます
+        <div style={{ marginBottom: '15px' }}>
+          議論を開始すると、ここにAIキャラクターたちの会話が表示されます
+        </div>
+        {currentRound && (
+          <div style={{
+            fontSize: '0.9rem',
+            color: '#007bff',
+            fontWeight: 'bold'
+          }}>
+            現在のラウンド: {currentRound}
+          </div>
+        )}
       </div>
     )
   }
@@ -51,9 +96,23 @@ export function ChatFeed({ messages }: ChatFeedProps) {
         padding: '15px 20px',
         borderBottom: '1px solid #e1e5e9',
         fontWeight: 'bold',
-        color: '#333'
+        color: '#333',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
       }}>
-        💬 議論の様子
+        <span>💬 議論の様子</span>
+        {currentRound && (
+          <span style={{
+            fontSize: '0.8rem',
+            color: '#007bff',
+            backgroundColor: '#f0f8ff',
+            padding: '4px 8px',
+            borderRadius: '12px'
+          }}>
+            ラウンド {currentRound}
+          </span>
+        )}
       </div>
       
       <div style={{
@@ -69,7 +128,7 @@ export function ChatFeed({ messages }: ChatFeedProps) {
               padding: '12px',
               backgroundColor: '#f8f9fa',
               borderRadius: '8px',
-              borderLeft: '4px solid #007bff'
+              borderLeft: `4px solid ${getMessageColor(message.message_type)}`
             }}
           >
             <div style={{
@@ -78,9 +137,20 @@ export function ChatFeed({ messages }: ChatFeedProps) {
               alignItems: 'center',
               marginBottom: '8px'
             }}>
-              <strong style={{ color: '#333' }}>
-                {message.agent_name}
-              </strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <strong style={{ color: '#333' }}>
+                  {message.agent_name}
+                </strong>
+                <span style={{
+                  fontSize: '0.7rem',
+                  color: getMessageColor(message.message_type),
+                  backgroundColor: `${getMessageColor(message.message_type)}20`,
+                  padding: '2px 6px',
+                  borderRadius: '10px'
+                }}>
+                  {getMessageTypeLabel(message.message_type)}
+                </span>
+              </div>
               <span style={{ 
                 fontSize: '0.8em', 
                 color: '#666' 
@@ -88,6 +158,17 @@ export function ChatFeed({ messages }: ChatFeedProps) {
                 {new Date(message.timestamp).toLocaleTimeString('ja-JP')}
               </span>
             </div>
+            
+            {message.target_agent && (
+              <div style={{
+                fontSize: '0.8rem',
+                color: '#666',
+                marginBottom: '8px',
+                fontStyle: 'italic'
+              }}>
+                → {message.target_agent} へ
+              </div>
+            )}
             
             <div style={{ 
               color: '#555',

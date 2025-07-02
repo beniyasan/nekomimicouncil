@@ -19,6 +19,15 @@ class AgentMessage(BaseModel):
     message: str = Field(..., description="The agent's message")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     choice: Optional[str] = Field(None, description="Agent's preferred choice")
+    message_type: Literal["initial_opinion", "question", "response", "final_opinion", "officer_question", "decision"] = Field(..., description="Type of message")
+    target_agent: Optional[str] = Field(None, description="Target agent ID for questions/responses")
+    round_number: int = Field(..., description="Discussion round number")
+
+class DebateRound(BaseModel):
+    """Information about a debate round"""
+    round_number: int = Field(..., description="Round number")
+    round_type: Literal["initial_opinions", "peer_questions", "officer_questions", "final_opinions", "decision"] = Field(..., description="Type of round")
+    description: str = Field(..., description="Description of what happens in this round")
 
 class DebateResult(BaseModel):
     """Complete debate result"""
@@ -29,6 +38,8 @@ class DebateResult(BaseModel):
     created_at: datetime = Field(..., description="When the debate was created")
     completed_at: Optional[datetime] = Field(None, description="When the debate was completed")
     messages: List[AgentMessage] = Field(default_factory=list, description="All messages during the debate")
+    rounds: List[DebateRound] = Field(default_factory=list, description="Debate rounds information")
+    current_round: int = Field(default=1, description="Current round number")
     final_choice: Optional[str] = Field(None, description="Final decision from Officer")
     summary: Optional[str] = Field(None, description="Summary of the debate")
     confidence: Optional[float] = Field(None, description="Confidence score (0-1)")

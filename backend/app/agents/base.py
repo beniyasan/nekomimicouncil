@@ -100,7 +100,10 @@ class BaseAgent(ABC):
     def _create_agent_message(
         self, 
         message: str, 
-        choice: Optional[str] = None
+        choice: Optional[str] = None,
+        message_type: str = "initial_opinion",
+        target_agent: Optional[str] = None,
+        round_number: int = 1
     ) -> AgentMessage:
         """Create an AgentMessage object"""
         return AgentMessage(
@@ -108,7 +111,10 @@ class BaseAgent(ABC):
             agent_name=self.agent_name,
             message=message,
             timestamp=datetime.utcnow(),
-            choice=choice
+            choice=choice,
+            message_type=message_type,
+            target_agent=target_agent,
+            round_number=round_number
         )
 
 class DebateAgent(BaseAgent):
@@ -155,14 +161,21 @@ class DebateAgent(BaseAgent):
             
             logger.info(f"Agent {self.agent_id} generated response: {choice}")
             
-            return self._create_agent_message(message, choice)
+            return self._create_agent_message(
+                message, 
+                choice, 
+                message_type="initial_opinion",
+                round_number=1
+            )
             
         except Exception as e:
             logger.error(f"Error generating response for {self.agent_id}: {str(e)}")
             # Fallback response
             return self._create_agent_message(
                 f"申し訳ありません、技術的な問題で意見を述べることができません。",
-                options[0] if options else None
+                options[0] if options else None,
+                message_type="initial_opinion",
+                round_number=1
             )
     
     def _build_prompt(
@@ -192,6 +205,242 @@ class DebateAgent(BaseAgent):
 }}
 
 キャラクターになりきって、自然で個性的な回答をしてください。"""
+        
+        return prompt
+    
+    async def ask_question(
+        self,
+        topic: str,
+        options: List[str],
+        other_messages: List[AgentMessage],
+        round_number: int = 2
+    ) -> AgentMessage:
+        """Ask a question to another agent based on their previous statements"""
+        try:
+            prompt = self._build_question_prompt(topic, options, other_messages)
+            
+            response = await self._generate_with_retry(
+                prompt=prompt,
+                max_tokens=128,
+                temperature=0.8
+            )
+            
+            parsed = self._parse_json_response(response)
+            question = parsed.get('question', '')
+            target_agent = parsed.get('target_agent', '')
+            
+            if not question:
+                raise ValueError("No question generated")
+            
+            return self._create_agent_message(
+                question,
+                message_type="question",
+                target_agent=target_agent,
+                round_number=round_number
+            )
+            
+        except Exception as e:
+            logger.error(f"Error generating question for {self.agent_id}: {str(e)}")
+            return None
+    
+    async def respond_to_question(
+        self,
+        topic: str,
+        options: List[str],
+        question_message: AgentMessage,
+        all_messages: List[AgentMessage],
+        round_number: int = 3
+    ) -> AgentMessage:
+        """Respond to a question from another agent"""
+        try:
+            prompt = self._build_response_prompt(topic, options, question_message, all_messages)
+            
+            response = await self._generate_with_retry(
+                prompt=prompt,
+                max_tokens=128,
+                temperature=0.7
+            )
+            
+            parsed = self._parse_json_response(response)
+            answer = parsed.get('answer', '')
+            choice = parsed.get('choice', '')
+            
+            if not answer:
+                raise ValueError("No answer generated")
+            
+            return self._create_agent_message(
+                answer,
+                choice=choice,
+                message_type="response",
+                target_agent=question_message.agent_id,
+                round_number=round_number
+            )
+            
+        except Exception as e:
+            logger.error(f"Error responding to question for {self.agent_id}: {str(e)}")
+            return self._create_agent_message(
+                f"申し訳ありません、質問にお答えできません。",
+                message_type="response",
+                target_agent=question_message.agent_id,
+                round_number=round_number
+            )
+    
+    async def final_opinion(
+        self,
+        topic: str,
+        options: List[str],
+        all_messages: List[AgentMessage],
+        round_number: int = 5
+    ) -> AgentMessage:
+        """Give final opinion after hearing all discussions"""
+        try:
+            prompt = self._build_final_opinion_prompt(topic, options, all_messages)
+            
+            response = await self._generate_with_retry(
+                prompt=prompt,
+                max_tokens=128,
+                temperature=0.6
+            )
+            
+            parsed = self._parse_json_response(response)
+            message = parsed.get('message', '')
+            choice = parsed.get('choice', '')
+            
+            if not message:
+                raise ValueError("No final opinion generated")
+            
+            return self._create_agent_message(
+                message,
+                choice=choice,
+                message_type="final_opinion",
+                round_number=round_number
+            )
+            
+        except Exception as e:
+            logger.error(f"Error generating final opinion for {self.agent_id}: {str(e)}")
+            return self._create_agent_message(
+                f"申し訳ありません、最終意見を述べることができません。",
+                choice=options[0] if options else None,
+                message_type="final_opinion",
+                round_number=round_number
+            )
+    
+    def _build_question_prompt(
+        self,
+        topic: str,
+        options: List[str],
+        other_messages: List[AgentMessage]
+    ) -> str:
+        """Build prompt for asking questions"""
+        options_str = "、".join(options)
+        
+        # Format other agents' messages
+        other_opinions = ""
+        for msg in other_messages:
+            if msg.agent_id != self.agent_id and msg.message_type == "initial_opinion":
+                other_opinions += f"- {msg.agent_name}: {msg.message}"
+                if msg.choice:
+                    other_opinions += f" (選択: {msg.choice})"
+                other_opinions += "\n"
+        
+        prompt = f"""あなたは「{self.persona.name}」として議論に参加しています。
+
+キャラクター設定:
+- 名前: {self.persona.name}
+- 性格: {self.persona.persona}
+- 話し方: {self.persona.speech_style}
+
+議題: {topic}
+選択肢: {options_str}
+
+他の参加者の意見:
+{other_opinions}
+
+他の参加者の意見を聞いて、あなたのキャラクターとして疑問に思った点や詳しく聞きたい点について質問してください。
+
+以下のJSON形式で回答してください:
+{{
+    "question": "質問内容を80文字程度で。キャラクターの話し方で自然に。",
+    "target_agent": "質問したい相手のagent_id (例: romantic, budget など)"
+}}
+
+建設的で興味深い質問をしてください。"""
+        
+        return prompt
+    
+    def _build_response_prompt(
+        self,
+        topic: str,
+        options: List[str],
+        question_message: AgentMessage,
+        all_messages: List[AgentMessage]
+    ) -> str:
+        """Build prompt for responding to questions"""
+        options_str = "、".join(options)
+        
+        prompt = f"""あなたは「{self.persona.name}」として議論に参加しています。
+
+キャラクター設定:
+- 名前: {self.persona.name}
+- 性格: {self.persona.persona}
+- 話し方: {self.persona.speech_style}
+
+議題: {topic}
+選択肢: {options_str}
+
+{question_message.agent_name}からの質問:
+「{question_message.message}」
+
+この質問にあなたのキャラクターとして答えてください。
+
+以下のJSON形式で回答してください:
+{{
+    "answer": "質問への回答を100文字程度で。キャラクターの話し方で自然に。",
+    "choice": "現時点での選択肢（変更があれば更新）"
+}}
+
+誠実かつキャラクターらしい回答をしてください。"""
+        
+        return prompt
+    
+    def _build_final_opinion_prompt(
+        self,
+        topic: str,
+        options: List[str],
+        all_messages: List[AgentMessage]
+    ) -> str:
+        """Build prompt for final opinion"""
+        options_str = "、".join(options)
+        
+        # Summarize the discussion
+        discussion_summary = ""
+        for msg in all_messages:
+            if msg.agent_id != self.agent_id:
+                discussion_summary += f"- {msg.agent_name} ({msg.message_type}): {msg.message[:50]}...\n"
+        
+        prompt = f"""あなたは「{self.persona.name}」として議論に参加しています。
+
+キャラクター設定:
+- 名前: {self.persona.name}
+- 性格: {self.persona.persona}
+- 話し方: {self.persona.speech_style}
+
+議題: {topic}
+選択肢: {options_str}
+
+これまでの議論:
+{discussion_summary}
+
+全ての議論を聞いた上で、あなたの最終的な意見を述べてください。
+他の人の意見で考えが変わった部分があれば言及してください。
+
+以下のJSON形式で回答してください:
+{{
+    "message": "最終意見を120文字程度で。他の人の意見への反応も含めて。",
+    "choice": "最終的な選択肢"
+}}
+
+熟慮した最終判断を示してください。"""
         
         return prompt
 
@@ -315,6 +564,96 @@ confidence は 0.0 から 1.0 の間で、この決定への確信度を示し�
     ) -> AgentMessage:
         """Not used for OfficerAgent - use generate_decision instead"""
         raise NotImplementedError("OfficerAgent uses generate_decision method")
+    
+    async def ask_clarifying_questions(
+        self,
+        topic: str,
+        options: List[str],
+        debate_messages: List[AgentMessage],
+        round_number: int = 4
+    ) -> List[AgentMessage]:
+        """Ask clarifying questions to specific agents"""
+        questions = []
+        
+        # Find agents with unclear or conflicting positions
+        agent_positions = {}
+        for msg in debate_messages:
+            if msg.message_type in ["initial_opinion", "response"]:
+                agent_positions[msg.agent_id] = msg
+        
+        for agent_id, msg in agent_positions.items():
+            try:
+                question = await self._generate_officer_question(topic, options, msg, debate_messages)
+                if question:
+                    questions.append(question)
+            except Exception as e:
+                logger.error(f"Error generating officer question for {agent_id}: {str(e)}")
+        
+        return questions
+    
+    async def _generate_officer_question(
+        self,
+        topic: str,
+        options: List[str],
+        target_message: AgentMessage,
+        all_messages: List[AgentMessage]
+    ) -> Optional[AgentMessage]:
+        """Generate a clarifying question for a specific agent"""
+        try:
+            prompt = self._build_officer_question_prompt(topic, options, target_message, all_messages)
+            
+            response = await self._generate_with_retry(
+                prompt=prompt,
+                max_tokens=128,
+                temperature=0.5
+            )
+            
+            parsed = self._parse_json_response(response)
+            question = parsed.get('question', '')
+            
+            if not question:
+                return None
+            
+            return self._create_agent_message(
+                question,
+                message_type="officer_question",
+                target_agent=target_message.agent_id,
+                round_number=4
+            )
+            
+        except Exception as e:
+            logger.error(f"Error generating officer question: {str(e)}")
+            return None
+    
+    def _build_officer_question_prompt(
+        self,
+        topic: str,
+        options: List[str],
+        target_message: AgentMessage,
+        all_messages: List[AgentMessage]
+    ) -> str:
+        """Build prompt for officer questions"""
+        options_str = "、".join(options)
+        
+        prompt = f"""あなたは議論の議長として、最終決定を下すために必要な情報を収集しています。
+
+議題: {topic}
+選択肢: {options_str}
+
+{target_message.agent_name}の発言:
+「{target_message.message}」
+選択: {target_message.choice}
+
+この発言について、最終決定のためにより詳しく知りたい点や明確にしたい点があれば質問してください。
+
+以下のJSON形式で回答してください:
+{{
+    "question": "議長として聞きたい質問を80文字程度で。丁寧で公正な口調で。"
+}}
+
+建設的で公平な質問をしてください。不要な場合は空文字を返してください。"""
+        
+        return prompt
     
     def _build_prompt(
         self, 

@@ -64,11 +64,24 @@ async def load_personas(count: int = 3) -> list[Persona]:
         ][:count]
 
 async def run_debate_process(debate_id: str, topic: str, options: list[str]):
-    """Run the actual debate process in background"""
+    """Run the actual multi-round debate process in background"""
     try:
         # Update status
         if debate_id in debates:
             debates[debate_id].status = "in_progress"
+            
+            # Initialize rounds
+            rounds = [
+                {"round_number": 1, "round_type": "initial_opinions", "description": "初期意見表明"},
+                {"round_number": 2, "round_type": "peer_questions", "description": "参加者同士の質疑応答"},
+                {"round_number": 3, "round_type": "peer_questions", "description": "質問への回答"},
+                {"round_number": 4, "round_type": "officer_questions", "description": "議長からの質問"},
+                {"round_number": 5, "round_type": "final_opinions", "description": "最終意見表明"},
+                {"round_number": 6, "round_type": "decision", "description": "議長による最終決定"}
+            ]
+            
+            for round_info in rounds:
+                debates[debate_id].rounds.append(round_info)
             
             # Emit status update
             if sio:
@@ -98,45 +111,84 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str]):
         officer_provider = AIProviderFactory.get_default_provider("officer")
         officer = OfficerAgent(officer_provider)
         
-        # Run debate
-        debate_tasks = []
+        # === ROUND 1: Initial Opinions ===
+        await emit_round_start(debate_id, 1, "初期意見表明")
+        
+        initial_tasks = []
         for agent in debate_agents:
             task = agent.generate_response(topic, options)
-            debate_tasks.append(task)
+            initial_tasks.append(task)
         
-        # Wait for all agents
-        debate_messages = await asyncio.gather(*debate_tasks, return_exceptions=True)
+        initial_messages = await asyncio.gather(*initial_tasks, return_exceptions=True)
+        valid_initial = await process_round_messages(debate_id, initial_messages, debate_agents, 1)
         
-        # Process results and emit messages
-        valid_messages = []
-        for i, result in enumerate(debate_messages):
-            if isinstance(result, Exception):
-                logger.error(f"Agent {debate_agents[i].agent_name} failed: {str(result)}")
-            else:
-                valid_messages.append(result)
-                
-                # Store message
-                if debate_id in debates:
-                    debates[debate_id].messages.append(result)
-                
-                # Emit real-time message
-                if sio:
-                    await sio.emit("agent_message", {
-                        "agent_id": result.agent_id,
-                        "agent_name": result.agent_name,
-                        "message": result.message,
-                        "timestamp": result.timestamp.isoformat(),
-                        "choice": result.choice
-                    }, room=f"debate-{debate_id}")
-                
-                # Small delay for better UX
-                await asyncio.sleep(1)
+        # === ROUND 2: Peer Questions ===
+        await emit_round_start(debate_id, 2, "参加者同士の質疑応答")
         
-        if not valid_messages:
-            raise ValueError("No valid debate messages")
+        question_tasks = []
+        for agent in debate_agents:
+            task = agent.ask_question(topic, options, valid_initial, 2)
+            question_tasks.append(task)
         
-        # Officer decision
-        decision = await officer.generate_decision(topic, options, valid_messages)
+        question_messages = await asyncio.gather(*question_tasks, return_exceptions=True)
+        valid_questions = await process_round_messages(debate_id, question_messages, debate_agents, 2)
+        
+        # === ROUND 3: Question Responses ===
+        await emit_round_start(debate_id, 3, "質問への回答")
+        
+        all_messages = valid_initial + [q for q in valid_questions if q is not None]
+        response_tasks = []
+        
+        for question in valid_questions:
+            if question and question.target_agent:
+                # Find the target agent
+                target_agent = next((a for a in debate_agents if a.agent_id == question.target_agent), None)
+                if target_agent:
+                    task = target_agent.respond_to_question(topic, options, question, all_messages, 3)
+                    response_tasks.append(task)
+        
+        if response_tasks:
+            response_messages = await asyncio.gather(*response_tasks, return_exceptions=True)
+            valid_responses = await process_round_messages(debate_id, response_messages, debate_agents, 3)
+            all_messages.extend([r for r in valid_responses if r is not None])
+        
+        # === ROUND 4: Officer Questions ===
+        await emit_round_start(debate_id, 4, "議長からの質問")
+        
+        officer_questions = await officer.ask_clarifying_questions(topic, options, all_messages, 4)
+        if officer_questions:
+            await process_round_messages(debate_id, officer_questions, [officer], 4)
+            
+            # Get responses to officer questions
+            officer_response_tasks = []
+            for question in officer_questions:
+                if question.target_agent:
+                    target_agent = next((a for a in debate_agents if a.agent_id == question.target_agent), None)
+                    if target_agent:
+                        task = target_agent.respond_to_question(topic, options, question, all_messages, 4)
+                        officer_response_tasks.append(task)
+            
+            if officer_response_tasks:
+                officer_responses = await asyncio.gather(*officer_response_tasks, return_exceptions=True)
+                valid_officer_responses = await process_round_messages(debate_id, officer_responses, debate_agents, 4)
+                all_messages.extend([r for r in valid_officer_responses if r is not None])
+        
+        # === ROUND 5: Final Opinions ===
+        await emit_round_start(debate_id, 5, "最終意見表明")
+        
+        final_tasks = []
+        for agent in debate_agents:
+            task = agent.final_opinion(topic, options, all_messages, 5)
+            final_tasks.append(task)
+        
+        final_messages = await asyncio.gather(*final_tasks, return_exceptions=True)
+        valid_finals = await process_round_messages(debate_id, final_messages, debate_agents, 5)
+        all_messages.extend([f for f in valid_finals if f is not None])
+        
+        # === ROUND 6: Officer Decision ===
+        await emit_round_start(debate_id, 6, "議長による最終決定")
+        
+        decision = await officer.generate_decision(topic, options, all_messages)
         
         # Update debate result
         if debate_id in debates:
@@ -145,6 +197,7 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str]):
             debates[debate_id].final_choice = decision["final_choice"]
             debates[debate_id].summary = decision["summary"]
             debates[debate_id].confidence = decision["confidence"]
+            debates[debate_id].current_round = 6
         
         # Emit final decision
         if sio:
@@ -154,7 +207,7 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str]):
                 "confidence": decision["confidence"]
             }, room=f"debate-{debate_id}")
         
-        logger.info(f"Debate {debate_id} completed successfully")
+        logger.info(f"Multi-round debate {debate_id} completed successfully")
         
     except Exception as e:
         logger.error(f"Error in debate process {debate_id}: {str(e)}")
@@ -168,6 +221,54 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str]):
             await sio.emit("error", {
                 "message": f"議論中にエラーが発生しました: {str(e)}"
             }, room=f"debate-{debate_id}")
+
+async def emit_round_start(debate_id: str, round_number: int, description: str):
+    """Emit round start event"""
+    if sio:
+        await sio.emit("round_start", {
+            "round_number": round_number,
+            "description": description
+        }, room=f"debate-{debate_id}")
+    
+    # Update current round
+    if debate_id in debates:
+        debates[debate_id].current_round = round_number
+    
+    # Small delay for better UX
+    await asyncio.sleep(1)
+
+async def process_round_messages(debate_id: str, messages, agents, round_number: int):
+    """Process and emit messages from a round"""
+    valid_messages = []
+    
+    for i, result in enumerate(messages):
+        if isinstance(result, Exception):
+            if i < len(agents):
+                logger.error(f"Agent {agents[i].agent_name} failed in round {round_number}: {str(result)}")
+        elif result is not None:
+            valid_messages.append(result)
+            
+            # Store message
+            if debate_id in debates:
+                debates[debate_id].messages.append(result)
+            
+            # Emit real-time message
+            if sio:
+                await sio.emit("agent_message", {
+                    "agent_id": result.agent_id,
+                    "agent_name": result.agent_name,
+                    "message": result.message,
+                    "timestamp": result.timestamp.isoformat(),
+                    "choice": result.choice,
+                    "message_type": result.message_type,
+                    "target_agent": result.target_agent,
+                    "round_number": result.round_number
+                }, room=f"debate-{debate_id}")
+            
+            # Small delay for better UX
+            await asyncio.sleep(1.5)
+    
+    return valid_messages
 
 @router.post("/debate", response_model=DebateStartResponse)
 async def start_debate(request: DebateRequest, background_tasks: BackgroundTasks):
