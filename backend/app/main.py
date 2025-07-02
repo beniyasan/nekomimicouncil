@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
 from .config import settings
-from .api import health, debate
+from .api import health, debate, avatar
 import logging
 
 # Configure logging
@@ -37,6 +37,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(debate.router, prefix="/api", tags=["debate"])
+app.include_router(avatar.router, prefix="/api", tags=["avatar"])
 
 # Set Socket.IO instance for debate module
 debate.set_socketio(sio)
@@ -49,6 +50,10 @@ async def startup_event():
     logger.info("NekoMimi Council API starting up...")
     logger.info(f"AI Provider: {settings.ai_provider}")
     logger.info(f"Debug mode: {settings.debug}")
+    
+    # Initialize avatar service
+    from .services.avatar_service import avatar_service
+    await avatar_service.initialize_avatars()
 
 @app.on_event("shutdown")
 async def shutdown_event():

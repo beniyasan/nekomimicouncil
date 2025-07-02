@@ -33,6 +33,11 @@ export function ChatFeed({ messages, rounds, currentRound }: ChatFeedProps) {
     scrollToBottom()
   }, [messages])
 
+  const getAvatarUrl = (agentId: string) => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+    return `${baseUrl}/api/avatar/${agentId}`
+  }
+
   const getMessageTypeLabel = (messageType: string) => {
     switch (messageType) {
       case 'initial_opinion': return '💭 初期意見'
@@ -137,19 +142,38 @@ export function ChatFeed({ messages, rounds, currentRound }: ChatFeedProps) {
               alignItems: 'center',
               marginBottom: '8px'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <strong style={{ color: '#333' }}>
-                  {message.agent_name}
-                </strong>
-                <span style={{
-                  fontSize: '0.7rem',
-                  color: getMessageColor(message.message_type),
-                  backgroundColor: `${getMessageColor(message.message_type)}20`,
-                  padding: '2px 6px',
-                  borderRadius: '10px'
-                }}>
-                  {getMessageTypeLabel(message.message_type)}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <img
+                  src={getAvatarUrl(message.agent_id)}
+                  alt={message.agent_name}
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    border: `2px solid ${getMessageColor(message.message_type)}`,
+                    backgroundColor: 'white'
+                  }}
+                  onError={(e) => {
+                    // Fallback to default avatar if image fails to load
+                    const target = e.target as HTMLImageElement
+                    target.src = getAvatarUrl('ai')
+                  }}
+                />
+                <div>
+                  <strong style={{ color: '#333', display: 'block' }}>
+                    {message.agent_name}
+                  </strong>
+                  <span style={{
+                    fontSize: '0.7rem',
+                    color: getMessageColor(message.message_type),
+                    backgroundColor: `${getMessageColor(message.message_type)}20`,
+                    padding: '2px 6px',
+                    borderRadius: '10px'
+                  }}>
+                    {getMessageTypeLabel(message.message_type)}
+                  </span>
+                </div>
               </div>
               <span style={{ 
                 fontSize: '0.8em', 
