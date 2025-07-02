@@ -1,13 +1,14 @@
 import { useState } from 'react'
 
 interface DebateFormProps {
-  onSubmit: (topic: string, options: string[]) => void
+  onSubmit: (topic: string, options: string[], enableWebSearch: boolean) => void
   isLoading: boolean
 }
 
 export function DebateForm({ onSubmit, isLoading }: DebateFormProps) {
   const [topic, setTopic] = useState('')
   const [optionsText, setOptionsText] = useState('')
+  const [enableWebSearch, setEnableWebSearch] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,7 +28,7 @@ export function DebateForm({ onSubmit, isLoading }: DebateFormProps) {
       return
     }
 
-    onSubmit(topic, options)
+    onSubmit(topic, options, enableWebSearch)
   }
 
   return (
@@ -98,6 +99,38 @@ export function DebateForm({ onSubmit, isLoading }: DebateFormProps) {
             }}
             disabled={isLoading}
           />
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            fontWeight: 'bold',
+            color: '#555',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={enableWebSearch}
+              onChange={(e) => setEnableWebSearch(e.target.checked)}
+              disabled={isLoading}
+              style={{
+                marginRight: '8px',
+                width: '16px',
+                height: '16px',
+                cursor: 'pointer'
+              }}
+            />
+            Web検索を有効にする
+          </label>
+          <p style={{ 
+            fontSize: '14px', 
+            color: '#666', 
+            margin: '8px 0 0 24px',
+            fontStyle: 'italic'
+          }}>
+            実店舗名が含まれる場合、実際の店舗情報を検索して議論に活用します
+          </p>
         </div>
 
         <button

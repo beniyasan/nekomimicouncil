@@ -9,6 +9,7 @@ from pathlib import Path
 from ..models.debate import DebateRequest, DebateStartResponse, DebateResult, Persona
 from ..agents.base import DebateAgent, OfficerAgent
 from ..agents.providers import AIProviderFactory
+from ..services.web_search import web_search_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -63,43 +64,73 @@ async def load_personas(count: int = 3) -> list[Persona]:
             )
         ][:count]
 
-async def run_debate_process(debate_id: str, topic: str, options: list[str]):
+async def run_debate_process(debate_id: str, topic: str, options: list[str], enable_web_search: bool = False):
     """Run the actual multi-round debate process in background"""
     try:
         # Update status
         if debate_id in debates:
             debates[debate_id].status = "in_progress"
             
-            # Initialize rounds
-            rounds = [
-                {"round_number": 1, "round_type": "initial_opinions", "description": "初期意見表明"},
-                {"round_number": 2, "round_type": "peer_questions", "description": "参加者同士の質疑応答"},
-                {"round_number": 3, "round_type": "peer_questions", "description": "質問への回答"},
-                {"round_number": 4, "round_type": "officer_questions", "description": "議長からの質問"},
-                {"round_number": 5, "round_type": "final_opinions", "description": "最終意見表明"},
-                {"round_number": 6, "round_type": "decision", "description": "議長による最終決定"}
-            ]
+        # Search for store information if enabled
+        search_results = None
+        if enable_web_search:
+            logger.info(f"Web search enabled for debate {debate_id}")
+            detected_stores = await web_search_service.detect_store_names(options)
             
-            for round_info in rounds:
-                debates[debate_id].rounds.append(round_info)
-            
-            # Emit status update
-            if sio:
-                await sio.emit("status_update", {
-                    "debate_id": debate_id,
-                    "status": "in_progress"
-                }, room=f"debate-{debate_id}")
+            if detected_stores:
+                logger.info(f"Detected stores: {detected_stores}")
+                search_results = {}
+                
+                for store in detected_stores:
+                    store_info = await web_search_service.search_store_info(store)
+                    if store_info:
+                        search_results[store] = store_info
+                        logger.info(f"Found information for {store}: {store_info.get('info', {}).get('description', 'No description')[:100]}...")
+                
+                # Emit search results to frontend
+                if sio and search_results:
+                    await sio.emit("search_results", {
+                        "debate_id": debate_id,
+                        "results": search_results
+                    }, room=f"debate-{debate_id}")
+            else:
+                logger.info("No stores detected in options")
+        
+        # Initialize rounds
+        rounds = [
+            {"round_number": 1, "round_type": "initial_opinions", "description": "初期意見表明"},
+            {"round_number": 2, "round_type": "peer_questions", "description": "参加者同士の質疑応答"},
+            {"round_number": 3, "round_type": "peer_questions", "description": "質問への回答"},
+            {"round_number": 4, "round_type": "officer_questions", "description": "議長からの質問"},
+            {"round_number": 5, "round_type": "final_opinions", "description": "最終意見表明"},
+            {"round_number": 6, "round_type": "decision", "description": "議長による最終決定"}
+        ]
+        
+        for round_info in rounds:
+            debates[debate_id].rounds.append(round_info)
+        
+        # Emit status update
+        if sio:
+            await sio.emit("status_update", {
+                "debate_id": debate_id,
+                "status": "in_progress"
+            }, room=f"debate-{debate_id}")
         
         # Load personas
         personas = await load_personas(3)
         logger.info(f"Loaded personas for debate {debate_id}: {[p.name for p in personas]}")
         
-        # Create agents
+        # Create agents with search results context
         debate_agents = []
         for persona in personas:
             try:
                 provider = AIProviderFactory.get_default_provider("debate")
                 agent = DebateAgent(persona, provider)
+                
+                # Inject search results into agent context if available
+                if search_results:
+                    agent.search_context = search_results
+                
                 debate_agents.append(agent)
             except Exception as e:
                 logger.error(f"Failed to create agent for {persona.name}: {str(e)}")
@@ -107,9 +138,13 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str]):
         if not debate_agents:
             raise ValueError("No debate agents available")
         
-        # Create officer
+        # Create officer with search context
         officer_provider = AIProviderFactory.get_default_provider("officer")
         officer = OfficerAgent(officer_provider)
+        
+        # Inject search results into officer context if available
+        if search_results:
+            officer.search_context = search_results
         
         # === ROUND 1: Initial Opinions ===
         await emit_round_start(debate_id, 1, "初期意見表明")
@@ -300,7 +335,7 @@ async def start_debate(request: DebateRequest, background_tasks: BackgroundTasks
         debates[debate_id] = debate_result
         
         # Start debate process in background
-        background_tasks.add_task(run_debate_process, debate_id, request.topic, request.options)
+        background_tasks.add_task(run_debate_process, debate_id, request.topic, request.options, request.enable_web_search)
         
         logger.info(f"Started debate {debate_id} with topic: {request.topic}")
         

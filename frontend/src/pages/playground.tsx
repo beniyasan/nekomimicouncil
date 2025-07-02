@@ -17,8 +17,8 @@ export default function Playground() {
     error
   } = useDebate()
 
-  const handleDebateSubmit = useCallback((topic: string, options: string[]) => {
-    startDebate(topic, options)
+  const handleDebateSubmit = useCallback((topic: string, options: string[], enableWebSearch: boolean) => {
+    startDebate(topic, options, enableWebSearch)
   }, [startDebate])
 
   return (

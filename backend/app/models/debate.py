@@ -7,6 +7,7 @@ class DebateRequest(BaseModel):
     """Request model for starting a debate"""
     topic: str = Field(..., description="The topic to debate")
     options: List[str] = Field(..., description="List of options to choose from", min_items=2)
+    enable_web_search: bool = Field(default=False, description="Enable web search for store information")
 
 class DebateStartResponse(BaseModel):
     """Response model for debate start"""

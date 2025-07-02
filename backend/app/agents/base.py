@@ -23,6 +23,7 @@ class BaseAgent(ABC):
         self.agent_name = agent_name
         self.provider = provider or AIProviderFactory.get_default_provider("debate")
         self.max_retries = max_retries
+        self.search_context = None  # Web search results context
     
     @abstractmethod
     async def generate_response(
@@ -196,13 +197,32 @@ class DebateAgent(BaseAgent):
 - 重視する要素: {json.dumps(self.persona.weights, ensure_ascii=False)}
 
 議題: {topic}
-選択肢: {options_str}
+選択肢: {options_str}"""
+
+        # Add web search context if available
+        if self.search_context:
+            prompt += "\n\n実際の店舗情報（Web検索結果）:\n"
+            for store_name, store_data in self.search_context.items():
+                info = store_data.get('info', {})
+                prompt += f"\n【{store_name}】\n"
+                if info.get('description'):
+                    prompt += f"- 概要: {info['description']}\n"
+                if info.get('location'):
+                    prompt += f"- 場所: {info['location']}\n"
+                if info.get('hours'):
+                    prompt += f"- 営業時間: {info['hours']}\n"
+                if info.get('price_range'):
+                    prompt += f"- 価格帯: {info['price_range']}\n"
+                if info.get('rating'):
+                    prompt += f"- 評価: {info['rating']}\n"
+
+        prompt += """
 
 以下のJSON形式で回答してください:
-{{
+{
     "message": "あなたの意見や理由を100文字程度で述べてください。キャラクターの性格と話し方を反映させてください。",
     "choice": "選択肢の中から1つを選んでください"
-}}
+}
 
 キャラクターになりきって、自然で個性的な回答をしてください。"""
         

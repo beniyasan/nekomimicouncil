@@ -34,7 +34,7 @@ export function useDebate() {
   const [currentRound, setCurrentRound] = useState<number>(0)
 
   useEffect(() => {
-    const newSocket = io(process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8000', {
+    const newSocket = io(process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8001', {
       transports: ['websocket', 'polling']
     })
 
@@ -83,6 +83,20 @@ export function useDebate() {
       setCurrentRound(6)
     })
 
+    newSocket.on('search_results', (data: any) => {
+      console.log('Received search results:', data)
+      // Add search results notification message
+      const searchMessage: AgentMessage = {
+        agent_id: 'system',
+        agent_name: '🔍 Web検索',
+        message: `${Object.keys(data.results).length}件の店舗情報を取得しました`,
+        timestamp: new Date().toISOString(),
+        message_type: 'search_results',
+        round_number: 0
+      }
+      setMessages(prev => [...prev, searchMessage])
+    })
+
     newSocket.on('error', (errorMessage: string) => {
       console.error('Debate error:', errorMessage)
       setError(errorMessage)
@@ -96,7 +110,7 @@ export function useDebate() {
     }
   }, [])
 
-  const startDebate = useCallback(async (topic: string, options: string[]) => {
+  const startDebate = useCallback(async (topic: string, options: string[], enableWebSearch: boolean = false) => {
     if (!socket || !isConnected) {
       setError('サーバーに接続されていません')
       return
@@ -110,12 +124,12 @@ export function useDebate() {
       setCurrentRound(0)
       setRounds([])
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/debate`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/debate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ topic, options }),
+        body: JSON.stringify({ topic, options, enable_web_search: enableWebSearch }),
       })
 
       if (!response.ok) {
