@@ -80,18 +80,38 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str], ena
             if detected_stores:
                 logger.info(f"Detected stores: {detected_stores}")
                 search_results = {}
+                successful_searches = 0
                 
                 for store in detected_stores:
+                    logger.info(f"Searching for store: {store}")
                     store_info = await web_search_service.search_store_info(store)
                     if store_info:
                         search_results[store] = store_info
-                        logger.info(f"Found information for {store}: {store_info.get('info', {}).get('description', 'No description')[:100]}...")
+                        successful_searches += 1
+                        logger.info(f"✅ Found information for {store}: {store_info.get('info', {}).get('description', 'No description')[:100]}...")
+                    else:
+                        logger.warning(f"❌ No information found for {store}")
+                        # Provide fallback information
+                        search_results[store] = {
+                            "store_name": store,
+                            "search_query": store,
+                            "info": {
+                                "description": f"{store}に関する詳細情報は見つかりませんでしたが、参加者の経験や知識をもとに議論します。",
+                                "location": "場所不明",
+                                "status": "検索失敗"
+                            },
+                            "search_results_count": 0
+                        }
+                
+                logger.info(f"Web search completed: {successful_searches}/{len(detected_stores)} successful")
                 
                 # Emit search results to frontend
                 if sio and search_results:
                     await sio.emit("search_results", {
                         "debate_id": debate_id,
-                        "results": search_results
+                        "results": search_results,
+                        "successful_count": successful_searches,
+                        "total_count": len(detected_stores)
                     }, room=f"debate-{debate_id}")
             else:
                 logger.info("No stores detected in options")
@@ -174,18 +194,34 @@ async def run_debate_process(debate_id: str, topic: str, options: list[str], ena
         all_messages = valid_initial + [q for q in valid_questions if q is not None]
         response_tasks = []
         
+        # Process each valid question and ensure responses
         for question in valid_questions:
             if question and question.target_agent:
-                # Find the target agent
+                # Find the target agent by agent_id
                 target_agent = next((a for a in debate_agents if a.agent_id == question.target_agent), None)
                 if target_agent:
+                    logger.info(f"Creating response task: {question.agent_name} -> {target_agent.agent_name}")
                     task = target_agent.respond_to_question(topic, options, question, all_messages, 3)
-                    response_tasks.append(task)
+                    response_tasks.append((task, target_agent.agent_name, question.agent_name))
+                else:
+                    logger.warning(f"Target agent '{question.target_agent}' not found for question from {question.agent_name}")
+            else:
+                if question:
+                    logger.warning(f"Question from {question.agent_name} has no target_agent")
         
         if response_tasks:
-            response_messages = await asyncio.gather(*response_tasks, return_exceptions=True)
-            valid_responses = await process_round_messages(debate_id, response_messages, debate_agents, 3)
+            logger.info(f"Processing {len(response_tasks)} response tasks")
+            # Extract just the tasks for gathering
+            tasks_only = [task[0] for task in response_tasks]
+            response_messages = await asyncio.gather(*tasks_only, return_exceptions=True)
+            
+            # Create agent list for process_round_messages (matching response order)
+            responding_agents = [next(a for a in debate_agents if a.agent_name == task[1]) for task in response_tasks]
+            
+            valid_responses = await process_round_messages(debate_id, response_messages, responding_agents, 3)
             all_messages.extend([r for r in valid_responses if r is not None])
+        else:
+            logger.warning("No response tasks created - questions may be missing target agents")
         
         # === ROUND 4: Officer Questions ===
         await emit_round_start(debate_id, 4, "議長からの質問")

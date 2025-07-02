@@ -8,6 +8,8 @@ NekoMimi Council is a real-time multi-round debate system that features:
 
 - **Interactive Multi-Round Discussions**: 6-stage debate process with questions, responses, and moderation
 - **Multiple AI Personas**: 10 unique AI characters with distinct personalities and decision-making preferences
+- **Avatar-Enhanced Chat**: Each AI persona has a unique avatar displayed in chat for visual engagement
+- **Web Search Integration**: Real store information retrieval for realistic debates about actual places
 - **Dual AI Provider Support**: Compatible with both OpenAI and Anthropic APIs
 - **Real-time Debate Visualization**: Watch AI personas debate in real-time through a web interface
 - **Intelligent Decision Making**: An AI Officer moderates discussions and synthesizes all arguments
@@ -101,14 +103,22 @@ docker compose up --build
 1. Navigate to http://localhost:3000/playground
 2. Enter a debate topic (e.g., "次の休暇の旅行先を決めよう")
 3. Add options separated by commas (e.g., "温泉旅館, 海外リゾート, 都市観光")
-4. Click "議論開始" to start the multi-round debate
-5. Watch the 6-round interactive discussion unfold:
+4. (Optional) Check "Web検索を有効にする" for real store information
+5. Click "議論開始" to start the multi-round debate
+6. Watch the 6-round interactive discussion unfold with animated avatars:
    - **Round 1**: Initial opinions from each persona
    - **Round 2-3**: Personas ask questions and provide answers
    - **Round 4**: Officer asks clarifying questions
    - **Round 5**: Final opinions after discussion
    - **Round 6**: Officer's final decision
-6. See the comprehensive decision with reasoning and confidence score
+7. See the comprehensive decision with reasoning and confidence score
+
+### 🎨 Visual Features
+
+- **Persona Avatars**: Each AI character displays with a unique 48x48px avatar
+- **Message Type Indicators**: Color-coded badges for different message types
+- **Real-time Updates**: Smooth chat feed with typing animations
+- **Web Search Results**: Visual notification when store information is retrieved
 
 ### CLI Testing
 
@@ -195,6 +205,7 @@ Here's what a typical debate looks like:
 │   │   ├── models/         # Pydantic models
 │   │   ├── agents/         # AI agent implementations
 │   │   ├── api/           # FastAPI routes and Socket.IO
+│   │   ├── services/      # Avatar and web search services
 │   │   ├── config.py      # Configuration management
 │   │   └── main.py        # Application entry point
 │   └── requirements.txt   # Python dependencies
@@ -206,7 +217,8 @@ Here's what a typical debate looks like:
 │   ├── package.json       # Node.js dependencies
 │   └── tsconfig.json      # TypeScript configuration
 ├── data/
-│   └── personas/          # AI persona definitions
+│   ├── personas/          # AI persona definitions
+│   └── icon/              # Avatar images (48x48px auto-resized)
 ├── docker/                # Dockerfiles
 ├── scripts/               # Utility scripts
 ├── docker-compose.yml     # Development environment
@@ -219,6 +231,8 @@ Here's what a typical debate looks like:
 
 - `POST /api/debate` - Start new debate session
 - `GET /api/debate/{id}` - Get debate results
+- `GET /api/avatar/{persona_id}` - Get persona avatar image
+- `GET /api/avatars` - List all available avatars
 - `GET /api/health` - Health check
 
 ### WebSocket Events
@@ -226,6 +240,7 @@ Here's what a typical debate looks like:
 - `agent_message` - Real-time agent contributions with message type and round information
 - `round_start` - New debate round beginning notification
 - `decision` - Final decision from OfficerAgent
+- `search_results` - Web search results notification
 - `status_update` - Debate status changes
 - `error` - Error notifications
 
@@ -282,6 +297,8 @@ Edit `data/personas/personas.json` to add new AI personas:
 1. **Port already in use**: Change ports in `docker-compose.yml`
 2. **API key errors**: Verify keys in `.env` file
 3. **Container startup failures**: Check Docker logs with `docker compose logs`
+4. **Avatar images not loading**: Ensure avatar files exist in `data/icon/` directory
+5. **Web search not working**: Check internet connectivity and search service status
 
 ### Debug Mode
 
@@ -298,6 +315,9 @@ LOG_LEVEL=DEBUG
 - [ ] PostgreSQL for persistent storage
 - [ ] User authentication (Auth0)
 - [ ] Expand to 5 debate agents and 100 personas
+- [ ] Custom avatar upload functionality
+- [ ] Animated avatar expressions based on emotion analysis
+- [ ] Enhanced web search with more data sources
 - [ ] PWA capabilities
 - [ ] WebSocket reconnection handling
 - [ ] Multi-language support

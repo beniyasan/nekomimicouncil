@@ -85,11 +85,19 @@ export function useDebate() {
 
     newSocket.on('search_results', (data: any) => {
       console.log('Received search results:', data)
-      // Add search results notification message
+      // Add search results notification message with detailed status
+      const totalStores = data.total_count || Object.keys(data.results).length
+      const successfulStores = data.successful_count || Object.keys(data.results).length
+      
+      let message = `${totalStores}件の店舗を検索しました`
+      if (data.successful_count !== undefined) {
+        message += ` (成功: ${successfulStores}件)`
+      }
+      
       const searchMessage: AgentMessage = {
         agent_id: 'system',
         agent_name: '🔍 Web検索',
-        message: `${Object.keys(data.results).length}件の店舗情報を取得しました`,
+        message: message,
         timestamp: new Date().toISOString(),
         message_type: 'search_results',
         round_number: 0

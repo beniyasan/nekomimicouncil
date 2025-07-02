@@ -252,6 +252,14 @@ class DebateAgent(BaseAgent):
             if not question:
                 raise ValueError("No question generated")
             
+            # Ensure target_agent is set - fallback to first available agent
+            if not target_agent and other_messages:
+                available_agents = [msg.agent_id for msg in other_messages 
+                                  if msg.agent_id != self.agent_id and msg.message_type == "initial_opinion"]
+                if available_agents:
+                    target_agent = available_agents[0]
+                    logger.info(f"No target_agent specified, falling back to {target_agent}")
+            
             return self._create_agent_message(
                 question,
                 message_type="question",
@@ -354,14 +362,18 @@ class DebateAgent(BaseAgent):
         """Build prompt for asking questions"""
         options_str = "、".join(options)
         
-        # Format other agents' messages
+        # Format other agents' messages with agent_id for targeting
         other_opinions = ""
+        available_agents = []
         for msg in other_messages:
             if msg.agent_id != self.agent_id and msg.message_type == "initial_opinion":
-                other_opinions += f"- {msg.agent_name}: {msg.message}"
+                other_opinions += f"- {msg.agent_name} (ID: {msg.agent_id}): {msg.message}"
                 if msg.choice:
                     other_opinions += f" (選択: {msg.choice})"
                 other_opinions += "\n"
+                available_agents.append(f"{msg.agent_id} ({msg.agent_name})")
+        
+        available_agents_str = "、".join(available_agents)
         
         prompt = f"""あなたは「{self.persona.name}」として議論に参加しています。
 
@@ -378,10 +390,12 @@ class DebateAgent(BaseAgent):
 
 他の参加者の意見を聞いて、あなたのキャラクターとして疑問に思った点や詳しく聞きたい点について質問してください。
 
+質問可能な参加者: {available_agents_str}
+
 以下のJSON形式で回答してください:
 {{
     "question": "質問内容を80文字程度で。キャラクターの話し方で自然に。",
-    "target_agent": "質問したい相手のagent_id (例: romantic, budget など)"
+    "target_agent": "質問したい相手のagent_id (上記のIDから必ず選択)"
 }}
 
 建設的で興味深い質問をしてください。"""

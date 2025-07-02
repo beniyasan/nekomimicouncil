@@ -34,44 +34,74 @@ class WebSearchService:
             if location:
                 query += f" {location}"
             
-            logger.info(f"Searching for: {query}")
+            logger.info(f"Starting web search for: {query}")
             
             # Search using DuckDuckGo
             search_results = await self._ddg_search(query)
             
             if not search_results:
+                logger.warning(f"No search results found for: {query}")
                 return None
+            
+            logger.info(f"Processing {len(search_results)} search results for: {store_name}")
             
             # Get detailed information from the top results
             store_info = await self._extract_store_details(search_results[:3])
             
-            return {
+            result = {
                 "store_name": store_name,
                 "search_query": query,
                 "info": store_info,
                 "search_results_count": len(search_results)
             }
             
+            logger.info(f"Successfully extracted info for {store_name}: {list(store_info.keys())}")
+            return result
+            
         except Exception as e:
-            logger.error(f"Error searching for {store_name}: {str(e)}")
+            logger.error(f"Error searching for {store_name}: {str(e)}", exc_info=True)
             return None
     
     async def _ddg_search(self, query: str, max_results: int = 5) -> List[Dict[str, str]]:
-        """Perform DuckDuckGo search"""
-        try:
-            # Run search in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                lambda: list(self.ddgs.text(query, max_results=max_results))
-            )
-            
-            logger.info(f"Found {len(results)} search results for: {query}")
-            return results
-            
-        except Exception as e:
-            logger.error(f"DuckDuckGo search error: {str(e)}")
-            return []
+        """Perform DuckDuckGo search with timeout and retry"""
+        max_retries = 2
+        
+        for attempt in range(max_retries + 1):
+            try:
+                logger.info(f"DuckDuckGo search attempt {attempt + 1}/{max_retries + 1} for: {query}")
+                
+                # Run search in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                
+                # Add timeout to prevent hanging
+                results = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: list(self.ddgs.text(query, max_results=max_results))
+                    ),
+                    timeout=15.0  # 15 second timeout
+                )
+                
+                logger.info(f"Found {len(results)} search results for: {query}")
+                return results
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"DuckDuckGo search timeout for: {query} (attempt {attempt + 1})")
+                if attempt < max_retries:
+                    await asyncio.sleep(1)  # Wait before retry
+                    continue
+                else:
+                    logger.error(f"DuckDuckGo search failed after {max_retries + 1} attempts (timeout)")
+                    return []
+                    
+            except Exception as e:
+                logger.warning(f"DuckDuckGo search error on attempt {attempt + 1}: {str(e)}")
+                if attempt < max_retries:
+                    await asyncio.sleep(1)  # Wait before retry
+                    continue
+                else:
+                    logger.error(f"DuckDuckGo search failed after {max_retries + 1} attempts: {str(e)}")
+                    return []
     
     async def _extract_store_details(self, search_results: List[Dict[str, str]]) -> Dict[str, Any]:
         """Extract relevant store information from search results"""
@@ -230,20 +260,49 @@ class WebSearchService:
             'A', 'B', 'C', 'D', 'E'  # Common store suffix patterns
         ]
         
+        # Common Japanese chain stores and restaurant names
+        known_chains = [
+            'マクドナルド', 'マック', 'McDonald', 'スターバックス', 'スタバ', 'Starbucks',
+            'サイゼリヤ', 'サイゼ', 'ガスト', 'すき家', 'なか卯', '松屋', '吉野家',
+            'ケンタッキー', 'KFC', 'モスバーガー', 'モス', 'ファミマ', 'セブン',
+            'ローソン', 'イオン', 'コメダ', 'ドトール', 'タリーズ', 'ココス',
+            'デニーズ', 'ジョナサン', 'バーミヤン', 'ロイヤルホスト', 'びっくりドンキー',
+            '丸亀製麺', 'はなまるうどん', 'リンガーハット', '王将', '餃子の王将',
+            'ラーメン二郎', '一蘭', '一風堂', 'くら寿司', 'スシロー', 'はま寿司',
+            '回転寿司', '焼肉きんぐ', '牛角', 'ステーキガスト', 'いきなりステーキ'
+        ]
+        
         detected_stores = []
         
         for option in options:
-            # Check if option contains store indicators
-            if any(indicator in option for indicator in store_indicators):
-                detected_stores.append(option)
+            option_lower = option.lower()
+            detected = False
             
-            # Check if option looks like a proper noun (starts with capital or has specific patterns)
-            if (len(option) > 2 and 
-                (option[0].isupper() or 
-                 any(char in option for char in ['亭', '庵', '館', '苑', '園']))):
-                detected_stores.append(option)
+            # Check for known chain stores first
+            for chain in known_chains:
+                if chain.lower() in option_lower or chain in option:
+                    detected_stores.append(option)
+                    detected = True
+                    logger.info(f"Detected known chain: {option} (matched: {chain})")
+                    break
+            
+            if not detected:
+                # Check if option contains store indicators
+                if any(indicator in option for indicator in store_indicators):
+                    detected_stores.append(option)
+                    detected = True
+                    logger.info(f"Detected store by indicator: {option}")
+                
+                # Check if option looks like a proper noun (starts with capital or has specific patterns)
+                elif (len(option) > 2 and 
+                      (option[0].isupper() or 
+                       any(char in option for char in ['亭', '庵', '館', '苑', '園']))):
+                    detected_stores.append(option)
+                    detected = True
+                    logger.info(f"Detected store by pattern: {option}")
         
-        return detected_stores
+        logger.info(f"Total detected stores: {len(detected_stores)} from options: {options}")
+        return list(set(detected_stores))  # Remove duplicates
     
     async def close(self):
         """Close HTTP session"""
